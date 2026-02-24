@@ -1,0 +1,316 @@
+name: Sync Core Files to Templates
+
+# Trigger on push to main or manual workflow_dispatch
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '_includes/**'
+      - '_layouts/**'
+      - 'assets/**'
+      - 'docs/**'
+      - 'scrollstories/**'
+      - 'Gemfile'
+      - '.gitignore'
+      - '_config.yml'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no actual push)'
+        required: false
+        default: 'false'
+      template:
+        description: 'Sync specific template only (or "all")'
+        required: false
+        default: 'all'
+
+env:
+  GIT_AUTHOR_NAME: "Xanthan Sync Bot"
+  GIT_AUTHOR_EMAIL: "actions@github.com"
+  GIT_COMMITTER_NAME: "Xanthan Sync Bot"
+  GIT_COMMITTER_EMAIL: "actions@github.com"
+
+jobs:
+  sync-portfolio-template:
+    if: github.event.inputs.template == 'all' || github.event.inputs.template == 'portfolio' || github.event.inputs.template == ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout xanthan main
+        uses: actions/checkout@v4
+        with:
+          path: xanthan-source
+          fetch-depth: 2
+
+      - name: Checkout portfolio-template
+        uses: actions/checkout@v4
+        with:
+          repository: xanthan-web/portfolio-template
+          token: ${{ secrets.SYNC_TOKEN }}
+          path: portfolio-template
+
+      - name: Sync core files to portfolio-template
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Syncing to portfolio-template"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          # Sync complete code libraries (excludes template-specific images)
+          rsync -av --delete xanthan-source/_includes/ portfolio-template/_includes/
+          rsync -av --delete xanthan-source/_layouts/ portfolio-template/_layouts/
+          rsync -av --delete xanthan-source/assets/css/ portfolio-template/assets/css/
+          rsync -av --delete xanthan-source/assets/js/ portfolio-template/assets/js/
+          rsync -av --delete xanthan-source/scrollstories/ portfolio-template/scrollstories/
+
+          # Sync docs (editing, reference, using-ai, scrollstories, navigation, getting-started)
+          # Exclude only the root index.md — each template has its own docs landing page
+          # Subdirectory index.md files (editing/index.md, reference/index.md, etc.) ARE synced
+          rsync -av --delete --exclude='/index.md' xanthan-source/docs/ portfolio-template/docs/
+
+          # Sync shared background images but preserve template-specific images
+          rsync -av --delete xanthan-source/assets/images/backgrounds/ portfolio-template/assets/images/backgrounds/ 2>/dev/null || true
+
+          # Sync dependency files
+          cp xanthan-source/Gemfile portfolio-template/Gemfile
+          cp xanthan-source/.gitignore portfolio-template/.gitignore
+          cp xanthan-source/CHANGELOG.md portfolio-template/XANTHAN_CHANGELOG.md
+
+          # Sync data files needed by doc pages (nav demos)
+          cp xanthan-source/_data/nav-profile.yml portfolio-template/_data/nav-profile.yml 2>/dev/null || true
+
+          # DO NOT sync _config.yml, nav-sections.yml, or nav-top.yml - they are template-specific
+
+          echo "✓ Synced core files to portfolio-template"
+
+          # Show what changed
+          cd portfolio-template
+          git status -s
+
+      - name: Create PR or push changes
+        run: |
+          cd portfolio-template
+
+          if [[ -z $(git status -s) ]]; then
+            echo "✓ No changes to commit"
+            exit 0
+          fi
+
+          # Dry run mode - just show what would be committed
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "DRY RUN - Would commit these changes:"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            git diff --stat
+            exit 0
+          fi
+
+          # Actual commit and push
+          git add -A
+
+          # Get the original commit message from xanthan and save to file
+          cd ../xanthan-source
+          git log -1 --pretty=%B HEAD > /tmp/commit-msg.txt
+          cd ../portfolio-template
+
+          # Create detailed commit message using original message
+          {
+            cat /tmp/commit-msg.txt
+            echo ""
+            echo "Synced from xanthan commit: ${{ github.sha }}"
+            echo ""
+            echo "Changes:"
+            git diff --cached --stat
+            echo ""
+            echo "[skip ci]"
+          } > /tmp/final-commit-msg.txt
+
+          git commit -F /tmp/final-commit-msg.txt
+          git push
+
+          echo "✓ Changes pushed to portfolio-template"
+
+  sync-scrollstory-template:
+    if: github.event.inputs.template == 'all' || github.event.inputs.template == 'scrollstory' || github.event.inputs.template == ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout xanthan main
+        uses: actions/checkout@v4
+        with:
+          path: xanthan-source
+          fetch-depth: 2
+
+      - name: Checkout scrollstory-template
+        uses: actions/checkout@v4
+        with:
+          repository: xanthan-web/scrollstory-template
+          token: ${{ secrets.SYNC_TOKEN }}
+          path: scrollstory-template
+
+      - name: Sync core files to scrollstory-template
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Syncing to scrollstory-template"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          # Sync complete code libraries (excludes template-specific images)
+          rsync -av --delete xanthan-source/_includes/ scrollstory-template/_includes/
+          rsync -av --delete xanthan-source/_layouts/ scrollstory-template/_layouts/
+          rsync -av --delete xanthan-source/assets/css/ scrollstory-template/assets/css/
+          rsync -av --delete xanthan-source/assets/js/ scrollstory-template/assets/js/
+          rsync -av --delete xanthan-source/scrollstories/ scrollstory-template/scrollstories/
+
+          # Sync docs (editing, reference, using-ai, scrollstories, navigation, getting-started)
+          # Exclude only the root index.md — each template has its own docs landing page
+          # Subdirectory index.md files (editing/index.md, reference/index.md, etc.) ARE synced
+          rsync -av --delete --exclude='/index.md' xanthan-source/docs/ scrollstory-template/docs/
+
+          # Sync shared background images but preserve template-specific images
+          rsync -av --delete xanthan-source/assets/images/backgrounds/ scrollstory-template/assets/images/backgrounds/ 2>/dev/null || true
+
+          # Sync dependency files
+          cp xanthan-source/Gemfile scrollstory-template/Gemfile
+          cp xanthan-source/.gitignore scrollstory-template/.gitignore
+          cp xanthan-source/CHANGELOG.md scrollstory-template/XANTHAN_CHANGELOG.md
+
+          # Sync data files needed by doc pages (nav demos)
+          cp xanthan-source/_data/nav-profile.yml scrollstory-template/_data/nav-profile.yml 2>/dev/null || true
+
+          # DO NOT sync _config.yml, nav-sections.yml, or nav-top.yml - they are template-specific
+
+          echo "✓ Synced core files to scrollstory-template"
+
+          cd scrollstory-template
+          git status -s
+
+      - name: Create PR or push changes
+        run: |
+          cd scrollstory-template
+
+          if [[ -z $(git status -s) ]]; then
+            echo "✓ No changes to commit"
+            exit 0
+          fi
+
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "DRY RUN - Would commit these changes:"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            git diff --stat
+            exit 0
+          fi
+
+          git add -A
+
+          # Get the original commit message from xanthan and save to file
+          cd ../xanthan-source
+          git log -1 --pretty=%B HEAD > /tmp/commit-msg.txt
+          cd ../scrollstory-template
+
+          {
+            cat /tmp/commit-msg.txt
+            echo ""
+            echo "Synced from xanthan commit: ${{ github.sha }}"
+            echo ""
+            echo "Changes:"
+            git diff --cached --stat
+            echo ""
+            echo "[skip ci]"
+          } > /tmp/final-commit-msg.txt
+
+          git commit -F /tmp/final-commit-msg.txt
+          git push
+
+          echo "✓ Changes pushed to scrollstory-template"
+
+  sync-class-project-template:
+    if: github.event.inputs.template == 'all' || github.event.inputs.template == 'class-project' || github.event.inputs.template == ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout xanthan main
+        uses: actions/checkout@v4
+        with:
+          path: xanthan-source
+          fetch-depth: 2
+
+      - name: Checkout class-project-template
+        uses: actions/checkout@v4
+        with:
+          repository: xanthan-web/class-project-template
+          token: ${{ secrets.SYNC_TOKEN }}
+          path: class-project-template
+
+      - name: Sync core files to class-project-template
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Syncing to class-project-template"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          # Sync complete code libraries (excludes template-specific images)
+          rsync -av --delete xanthan-source/_includes/ class-project-template/_includes/
+          rsync -av --delete xanthan-source/_layouts/ class-project-template/_layouts/
+          rsync -av --delete xanthan-source/assets/css/ class-project-template/assets/css/
+          rsync -av --delete xanthan-source/assets/js/ class-project-template/assets/js/
+          rsync -av --delete xanthan-source/scrollstories/ class-project-template/scrollstories/
+
+          # Sync docs (editing, reference, using-ai, scrollstories, navigation, getting-started)
+          # Exclude only the root index.md — each template has its own docs landing page
+          # Subdirectory index.md files (editing/index.md, reference/index.md, etc.) ARE synced
+          rsync -av --delete --exclude='/index.md' xanthan-source/docs/ class-project-template/docs/
+
+          # Sync shared background images but preserve template-specific images
+          rsync -av --delete xanthan-source/assets/images/backgrounds/ class-project-template/assets/images/backgrounds/ 2>/dev/null || true
+
+          # Sync dependency files
+          cp xanthan-source/Gemfile class-project-template/Gemfile
+          cp xanthan-source/.gitignore class-project-template/.gitignore
+          cp xanthan-source/CHANGELOG.md class-project-template/XANTHAN_CHANGELOG.md
+
+          # Sync data files needed by doc pages (nav demos)
+          cp xanthan-source/_data/nav-profile.yml class-project-template/_data/nav-profile.yml 2>/dev/null || true
+
+          # DO NOT sync _config.yml, nav-sections.yml, or nav-top.yml - they are template-specific
+
+          echo "✓ Synced core files to class-project-template"
+
+          cd class-project-template
+          git status -s
+
+      - name: Create PR or push changes
+        run: |
+          cd class-project-template
+
+          if [[ -z $(git status -s) ]]; then
+            echo "✓ No changes to commit"
+            exit 0
+          fi
+
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "DRY RUN - Would commit these changes:"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            git diff --stat
+            exit 0
+          fi
+
+          git add -A
+
+          # Get the original commit message from xanthan and save to file
+          cd ../xanthan-source
+          git log -1 --pretty=%B HEAD > /tmp/commit-msg.txt
+          cd ../class-project-template
+
+          {
+            cat /tmp/commit-msg.txt
+            echo ""
+            echo "Synced from xanthan commit: ${{ github.sha }}"
+            echo ""
+            echo "Changes:"
+            git diff --cached --stat
+            echo ""
+            echo "[skip ci]"
+          } > /tmp/final-commit-msg.txt
+
+          git commit -F /tmp/final-commit-msg.txt
+          git push
+
+          echo "✓ Changes pushed to class-project-template"
